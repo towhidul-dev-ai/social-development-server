@@ -220,6 +220,46 @@ app.put("/api/events/:id", async (req, res) => {
 });
 
 
+// DELETE - Delete Event API
+app.delete("/api/events/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Validate event ID
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({
+        success: false,
+        message: "Invalid event ID.",
+      });
+    }
+
+    // Delete event
+    const result = await db.collection("events").deleteOne({
+      _id: new ObjectId(id),
+    });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).send({
+        success: false,
+        message: "Event not found.",
+      });
+    }
+
+    res.status(200).send({
+      success: true,
+      message: "Event deleted successfully!",
+    });
+  } catch (error) {
+    console.error("Delete event error:", error);
+
+    res.status(500).send({
+      success: false,
+      message: "Failed to delete event.",
+    });
+  }
+});
+
+
 // POST - Create Event API
 app.post("/api/events", async (req, res) => {
   try {
