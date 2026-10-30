@@ -96,6 +96,45 @@ app.get("/api/events", async (req, res) => {
   }
 });
 
+// POST - Create Event API
+app.post("/api/events", async (req, res) => {
+  try {
+    const { title, description, eventType, thumbnail, location, eventDate } =
+      req.body;
+
+    if (!title || !description || !eventType || !location || !eventDate) {
+      return res.status(400).send({
+        success: false,
+        message: "Please provide all required fields.",
+      });
+    }
+
+    const newEvent = {
+      title,
+      description,
+      eventType,
+      thumbnail,
+      location,
+      eventDate: new Date(eventDate),
+      createdAt: new Date(),
+    };
+
+    const result = await db.collection("events").insertOne(newEvent);
+
+    res.status(201).send({
+      success: true,
+      message: "Event created successfully!",
+      eventId: result.insertedId,
+    });
+  } catch (error) {
+    console.error("Create event error:", error);
+
+    res.status(500).send({
+      success: false,
+      message: "Failed to create event.",
+    });
+  }
+});
 // Start server after MongoDB connection
 async function startServer() {
   try {
