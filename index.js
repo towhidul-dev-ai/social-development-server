@@ -96,6 +96,34 @@ app.get("/api/events", async (req, res) => {
   }
 });
 
+// GET: All upcoming events
+app.get("/api/events/upcoming", async (req, res) => {
+  try {
+    const currentDate = new Date();
+
+    const events = await db
+      .collection("events")
+      .find({
+        eventDate: { $gt: currentDate },
+      })
+      .sort({ eventDate: 1 })
+      .toArray();
+
+    res.status(200).send({
+      success: true,
+      total: events.length,
+      events,
+    });
+  } catch (error) {
+    console.error("Upcoming events error:", error);
+
+    res.status(500).send({
+      success: false,
+      message: "Failed to fetch upcoming events",
+    });
+  }
+});
+
 
 // GET SINGLE EVENT API
 app.get("/api/events/:id", async (req, res) => {
@@ -263,24 +291,76 @@ app.delete("/api/events/:id", async (req, res) => {
 // POST - Create Event API
 app.post("/api/events", async (req, res) => {
   try {
-    const { title, description, eventType, thumbnail, location, eventDate } =
-      req.body;
-
-    if (!title || !description || !eventType || !location || !eventDate) {
-      return res.status(400).send({
-        success: false,
-        message: "Please provide all required fields.",
-      });
-    }
-
-    const newEvent = {
+    const {
       title,
       description,
       eventType,
       thumbnail,
       location,
-      eventDate: new Date(eventDate),
+      eventDate,
+      creatorId,
+      creatorName,
+      creatorEmail,
+      creatorImage,
+    } = req.body;
+
+    // Validate required event fields
+    if (
+      !title?.trim() ||
+      !description?.trim() ||
+      !eventType?.trim() ||
+      !location?.trim() ||
+      !eventDate
+    ) {
+      return res.status(400).send({
+        success: false,
+        message: "Please provide all required event fields.",
+      });
+    }
+
+    // Validate organizer information
+    if (!creatorId || !creatorName?.trim() || !creatorEmail?.trim()) {
+      return res.status(400).send({
+        success: false,
+        message: "Organizer information is missing. Please log in again.",
+      });
+    }
+
+    // Validate event date
+    const parsedDate = new Date(eventDate);
+
+    if (Number.isNaN(parsedDate.getTime())) {
+      return res.status(400).send({
+        success: false,
+        message: "Please provide a valid event date.",
+      });
+    }
+
+    if (parsedDate.getTime() <= Date.now()) {
+      return res.status(400).send({
+        success: false,
+        message: "Event date must be in the future.",
+      });
+    }
+
+    // Create event document
+    const newEvent = {
+      title: title.trim(),
+      description: description.trim(),
+      eventType: eventType.trim(),
+      thumbnail: thumbnail?.trim() || "",
+      location: location.trim(),
+      eventDate: parsedDate,
+
+      // Organizer information
+      creatorId,
+      creatorName: creatorName.trim(),
+      creatorEmail: creatorEmail.trim(),
+      creatorImage: creatorImage || "",
+
+      // Timestamps
       createdAt: new Date(),
+      updatedAt: new Date(),
     };
 
     const result = await db.collection("events").insertOne(newEvent);
@@ -289,6 +369,10 @@ app.post("/api/events", async (req, res) => {
       success: true,
       message: "Event created successfully!",
       eventId: result.insertedId,
+      event: {
+        ...newEvent,
+        _id: result.insertedId,
+      },
     });
   } catch (error) {
     console.error("Create event error:", error);
@@ -299,6 +383,47 @@ app.post("/api/events", async (req, res) => {
     });
   }
 });
+
+
+// // POST - Create Event API
+// app.post("/api/events", async (req, res) => {
+//   try {
+//     const { title, description, eventType, thumbnail, location, eventDate } =
+//       req.body;
+
+//     if (!title || !description || !eventType || !location || !eventDate) {
+//       return res.status(400).send({
+//         success: false,
+//         message: "Please provide all required fields.",
+//       });
+//     }
+
+//     const newEvent = {
+//       title,
+//       description,
+//       eventType,
+//       thumbnail,
+//       location,
+//       eventDate: new Date(eventDate),
+//       createdAt: new Date(),
+//     };
+
+//     const result = await db.collection("events").insertOne(newEvent);
+
+//     res.status(201).send({
+//       success: true,
+//       message: "Event created successfully!",
+//       eventId: result.insertedId,
+//     });
+//   } catch (error) {
+//     console.error("Create event error:", error);
+
+//     res.status(500).send({
+//       success: false,
+//       message: "Failed to create event.",
+//     });
+//   }
+// });
 
 
 // Start server after MongoDB connection
