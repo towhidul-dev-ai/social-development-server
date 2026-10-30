@@ -134,6 +134,92 @@ app.get("/api/events/:id", async (req, res) => {
   }
 });
 
+
+// PUT - Update Event API
+app.put("/api/events/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const {
+      title,
+      description,
+      eventType,
+      thumbnail,
+      location,
+      eventDate,
+    } = req.body;
+
+    // Validate event ID
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({
+        success: false,
+        message: "Invalid event ID.",
+      });
+    }
+
+    // Validate required fields
+    if (
+      !title?.trim() ||
+      !description?.trim() ||
+      !eventType?.trim() ||
+      !location?.trim() ||
+      !eventDate
+    ) {
+      return res.status(400).send({
+        success: false,
+        message: "Please provide all required fields.",
+      });
+    }
+
+    // Validate date
+    const parsedDate = new Date(eventDate);
+
+    if (Number.isNaN(parsedDate.getTime())) {
+      return res.status(400).send({
+        success: false,
+        message: "Please provide a valid event date.",
+      });
+    }
+
+    // Update event
+    const result = await db.collection("events").updateOne(
+      { _id: new ObjectId(id) },
+      {
+        $set: {
+          title: title.trim(),
+          description: description.trim(),
+          eventType: eventType.trim(),
+          thumbnail: thumbnail?.trim() || "",
+          location: location.trim(),
+          eventDate: parsedDate,
+          updatedAt: new Date(),
+        },
+      }
+    );
+
+    // Check whether event exists
+    if (result.matchedCount === 0) {
+      return res.status(404).send({
+        success: false,
+        message: "Event not found.",
+      });
+    }
+
+    res.status(200).send({
+      success: true,
+      message: "Event updated successfully!",
+    });
+  } catch (error) {
+    console.error("Update event error:", error);
+
+    res.status(500).send({
+      success: false,
+      message: "Failed to update event.",
+    });
+  }
+});
+
+
 // POST - Create Event API
 app.post("/api/events", async (req, res) => {
   try {
