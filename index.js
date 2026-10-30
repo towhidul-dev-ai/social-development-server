@@ -32,7 +32,7 @@
 
 
 import express from "express";
-import { MongoClient } from "mongodb";
+import { MongoClient, ObjectId } from "mongodb";
 import cors from "cors";
 import "dotenv/config";
 
@@ -96,6 +96,44 @@ app.get("/api/events", async (req, res) => {
   }
 });
 
+
+// GET SINGLE EVENT API
+app.get("/api/events/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({
+        success: false,
+        message: "Invalid event ID.",
+      });
+    }
+
+    const event = await db.collection("events").findOne({
+      _id: new ObjectId(id),
+    });
+
+    if (!event) {
+      return res.status(404).send({
+        success: false,
+        message: "Event not found.",
+      });
+    }
+
+    res.status(200).send({
+      success: true,
+      event,
+    });
+  } catch (error) {
+    console.error("Get single event error:", error);
+
+    res.status(500).send({
+      success: false,
+      message: "Failed to retrieve event.",
+    });
+  }
+});
+
 // POST - Create Event API
 app.post("/api/events", async (req, res) => {
   try {
@@ -135,6 +173,8 @@ app.post("/api/events", async (req, res) => {
     });
   }
 });
+
+
 // Start server after MongoDB connection
 async function startServer() {
   try {
