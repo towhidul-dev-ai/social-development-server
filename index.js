@@ -71,12 +71,20 @@ app.get("/", (req, res) => {
   });
 });
 
+
 // GET ALL EVENTS API
 app.get("/api/events", async (req, res) => {
   try {
+    const { email } = req.query;
+
+    // Build query
+    const query = email
+      ? { creatorEmail: email.toString().toLowerCase() }
+      : {};
+
     const events = await db
       .collection("events")
-      .find()
+      .find(query)
       .sort({ createdAt: -1 })
       .toArray();
 
@@ -85,7 +93,6 @@ app.get("/api/events", async (req, res) => {
       total: events.length,
       events,
     });
-
   } catch (error) {
     console.error("Get events error:", error);
 
@@ -99,12 +106,10 @@ app.get("/api/events", async (req, res) => {
 // GET: All upcoming events
 app.get("/api/events/upcoming", async (req, res) => {
   try {
-    const currentDate = new Date();
-
     const events = await db
       .collection("events")
       .find({
-        eventDate: { $gt: currentDate },
+        eventDate: { $gt: new Date() },
       })
       .sort({ eventDate: 1 })
       .toArray();
@@ -115,14 +120,40 @@ app.get("/api/events/upcoming", async (req, res) => {
       events,
     });
   } catch (error) {
-    console.error("Upcoming events error:", error);
-
     res.status(500).send({
       success: false,
-      message: "Failed to fetch upcoming events",
+      message: "Failed to retrieve upcoming events.",
     });
   }
 });
+
+// GET: All upcoming events
+// app.get("/api/events/upcoming", async (req, res) => {
+//   try {
+//     const currentDate = new Date();
+
+//     const events = await db
+//       .collection("events")
+//       .find({
+//         eventDate: { $gt: currentDate },
+//       })
+//       .sort({ eventDate: 1 })
+//       .toArray();
+
+//     res.status(200).send({
+//       success: true,
+//       total: events.length,
+//       events,
+//     });
+//   } catch (error) {
+//     console.error("Upcoming events error:", error);
+
+//     res.status(500).send({
+//       success: false,
+//       message: "Failed to fetch upcoming events",
+//     });
+//   }
+// });
 
 // GET: Event join status and volunteer list
 app.get("/api/events/:id/join-status", async (req, res) => {
@@ -202,7 +233,7 @@ app.get("/api/joined-events", async (req, res) => {
     // Find all joining records for this user
     const joinedRecords = await db
       .collection("joinedEvents")
-      .find({ userEmail: email })
+      .find({ userEmail: email.trim().toLowerCase() })
       .sort({ joinedAt: -1 })
       .toArray();
 
@@ -240,6 +271,13 @@ app.get("/api/joined-events", async (req, res) => {
       };
     });
 
+    // Sort by event date: earliest first
+    eventsWithJoinDate.sort(
+      (a, b) =>
+        new Date(a.eventDate).getTime() -
+        new Date(b.eventDate).getTime()
+    );
+
     res.status(200).send({
       success: true,
       total: eventsWithJoinDate.length,
@@ -254,6 +292,76 @@ app.get("/api/joined-events", async (req, res) => {
     });
   }
 });
+
+
+
+// GET: All events joined by a user
+// app.get("/api/joined-events", async (req, res) => {
+//   try {
+//     const { email } = req.query;
+
+//     if (!email || typeof email !== "string") {
+//       return res.status(400).send({
+//         success: false,
+//         message: "User email is required.",
+//       });
+//     }
+
+//     // Find all joining records for this user
+//     const joinedRecords = await db
+//       .collection("joinedEvents")
+//       .find({ userEmail: email })
+//       .sort({ joinedAt: -1 })
+//       .toArray();
+
+//     if (joinedRecords.length === 0) {
+//       return res.status(200).send({
+//         success: true,
+//         total: 0,
+//         events: [],
+//       });
+//     }
+
+//     // Get the event IDs
+//     const eventIds = joinedRecords.map(
+//       (record) => record.eventId
+//     );
+
+//     // Find the corresponding events
+//     const events = await db
+//       .collection("events")
+//       .find({
+//         _id: { $in: eventIds },
+//       })
+//       .toArray();
+
+//     // Attach joined date to each event
+//     const eventsWithJoinDate = events.map((event) => {
+//       const joinedRecord = joinedRecords.find(
+//         (record) =>
+//           record.eventId.toString() === event._id.toString()
+//       );
+
+//       return {
+//         ...event,
+//         joinedAt: joinedRecord?.joinedAt || null,
+//       };
+//     });
+
+//     res.status(200).send({
+//       success: true,
+//       total: eventsWithJoinDate.length,
+//       events: eventsWithJoinDate,
+//     });
+//   } catch (error) {
+//     console.error("Get joined events error:", error);
+
+//     res.status(500).send({
+//       success: false,
+//       message: "Failed to retrieve joined events.",
+//     });
+//   }
+// });
 
 // GET SINGLE EVENT API
 app.get("/api/events/:id", async (req, res) => {
@@ -294,9 +402,11 @@ app.get("/api/events/:id", async (req, res) => {
 
 
 // PUT - Update Event API
+// PUT - UPDATE EVENT API
 app.put("/api/events/:id", async (req, res) => {
   try {
     const { id } = req.params;
+    const email = req.query.email?.toString().trim().toLowerCase();
 
     const {
       title,
@@ -312,6 +422,14 @@ app.put("/api/events/:id", async (req, res) => {
       return res.status(400).send({
         success: false,
         message: "Invalid event ID.",
+      });
+    }
+
+    // Validate user email
+    if (!email) {
+      return res.status(401).send({
+        success: false,
+        message: "User email is required.",
       });
     }
 
@@ -329,19 +447,25 @@ app.put("/api/events/:id", async (req, res) => {
       });
     }
 
-    // Validate date
+    // Validate event date
     const parsedDate = new Date(eventDate);
 
-    if (Number.isNaN(parsedDate.getTime())) {
+    if (
+      Number.isNaN(parsedDate.getTime()) ||
+      parsedDate <= new Date()
+    ) {
       return res.status(400).send({
         success: false,
-        message: "Please provide a valid event date.",
+        message: "Please provide a valid future event date.",
       });
     }
 
-    // Update event
+    // Update only if the event belongs to this user
     const result = await db.collection("events").updateOne(
-      { _id: new ObjectId(id) },
+      {
+        _id: new ObjectId(id),
+        creatorEmail: email,
+      },
       {
         $set: {
           title: title.trim(),
@@ -355,11 +479,11 @@ app.put("/api/events/:id", async (req, res) => {
       }
     );
 
-    // Check whether event exists
+    // Check whether the user's event exists
     if (result.matchedCount === 0) {
       return res.status(404).send({
         success: false,
-        message: "Event not found.",
+        message: "Event not found or you are not authorized to update it.",
       });
     }
 
@@ -377,11 +501,12 @@ app.put("/api/events/:id", async (req, res) => {
   }
 });
 
-
+// DELETE - Delete Event API
 // DELETE - Delete Event API
 app.delete("/api/events/:id", async (req, res) => {
   try {
     const { id } = req.params;
+    const email = req.query.email?.toString().trim().toLowerCase();
 
     // Validate event ID
     if (!ObjectId.isValid(id)) {
@@ -391,17 +516,35 @@ app.delete("/api/events/:id", async (req, res) => {
       });
     }
 
-    // Delete event
+    // Validate user email
+    if (!email) {
+      return res.status(401).send({
+        success: false,
+        message: "User email is required.",
+      });
+    }
+
+    const eventId = new ObjectId(id);
+
+    // Delete only if the event belongs to this user
     const result = await db.collection("events").deleteOne({
-      _id: new ObjectId(id),
+      _id: eventId,
+      creatorEmail: email,
     });
 
+    // Check whether the event belongs to this user
     if (result.deletedCount === 0) {
       return res.status(404).send({
         success: false,
-        message: "Event not found.",
+        message:
+          "Event not found or you are not authorized to delete it.",
       });
     }
+
+    // Delete related joined event records
+    await db.collection("joinedEvents").deleteMany({
+      eventId,
+    });
 
     res.status(200).send({
       success: true,
@@ -416,7 +559,6 @@ app.delete("/api/events/:id", async (req, res) => {
     });
   }
 });
-
 
 // POST - Create Event API
 app.post("/api/events", async (req, res) => {
@@ -434,11 +576,12 @@ app.post("/api/events", async (req, res) => {
       creatorImage,
     } = req.body;
 
-    // Validate required event fields
+    // Validate required fields
     if (
       !title?.trim() ||
       !description?.trim() ||
       !eventType?.trim() ||
+      !thumbnail?.trim() ||
       !location?.trim() ||
       !eventDate
     ) {
@@ -449,10 +592,30 @@ app.post("/api/events", async (req, res) => {
     }
 
     // Validate organizer information
-    if (!creatorId || !creatorName?.trim() || !creatorEmail?.trim()) {
+    if (
+      !creatorId ||
+      !creatorName?.trim() ||
+      !creatorEmail?.trim()
+    ) {
       return res.status(400).send({
         success: false,
-        message: "Organizer information is missing. Please log in again.",
+        message: "Organizer information is missing.",
+      });
+    }
+
+    // Validate thumbnail URL
+    let thumbnailUrl;
+
+    try {
+      thumbnailUrl = new URL(thumbnail.trim());
+
+      if (!["http:", "https:"].includes(thumbnailUrl.protocol)) {
+        throw new Error("Invalid protocol");
+      }
+    } catch {
+      return res.status(400).send({
+        success: false,
+        message: "Please provide a valid thumbnail image URL.",
       });
     }
 
@@ -478,24 +641,25 @@ app.post("/api/events", async (req, res) => {
       title: title.trim(),
       description: description.trim(),
       eventType: eventType.trim(),
-      thumbnail: thumbnail?.trim() || "",
+      thumbnail: thumbnailUrl.toString(),
       location: location.trim(),
+
       eventDate: parsedDate,
 
-      // Organizer information
       creatorId,
       creatorName: creatorName.trim(),
       creatorEmail: creatorEmail.trim(),
       creatorImage: creatorImage || "",
 
-      // Timestamps
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
-    const result = await db.collection("events").insertOne(newEvent);
+    const result = await db
+      .collection("events")
+      .insertOne(newEvent);
 
-    res.status(201).send({
+    return res.status(201).send({
       success: true,
       message: "Event created successfully!",
       eventId: result.insertedId,
@@ -507,94 +671,13 @@ app.post("/api/events", async (req, res) => {
   } catch (error) {
     console.error("Create event error:", error);
 
-    res.status(500).send({
+    return res.status(500).send({
       success: false,
       message: "Failed to create event.",
     });
   }
 });
 
-// POST: Join an event
-app.post("/api/events/:id/join", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { userEmail, userName, userImage } = req.body;
-
-    // Validate event ID
-    if (!ObjectId.isValid(id)) {
-      return res.status(400).send({
-        success: false,
-        message: "Invalid event ID.",
-      });
-    }
-
-    // Validate user information
-    if (!userEmail) {
-      return res.status(400).send({
-        success: false,
-        message: "User email is required.",
-      });
-    }
-
-    const eventId = new ObjectId(id);
-
-    // Check whether event exists
-    const event = await db.collection("events").findOne({
-      _id: eventId,
-    });
-
-    if (!event) {
-      return res.status(404).send({
-        success: false,
-        message: "Event not found.",
-      });
-    }
-
-    // Prevent joining an event that has already passed
-    if (new Date(event.eventDate) <= new Date()) {
-      return res.status(400).send({
-        success: false,
-        message: "This event has already started or passed.",
-      });
-    }
-
-    // Check whether user already joined
-    const existingJoin = await db.collection("joinedEvents").findOne({
-      eventId,
-      userEmail,
-    });
-
-    if (existingJoin) {
-      return res.status(409).send({
-        success: false,
-        message: "You have already joined this event.",
-      });
-    }
-
-    // Save joining information
-    const joinData = {
-      eventId,
-      userEmail,
-      userName: userName || userEmail,
-      userImage: userImage || "",
-      joinedAt: new Date(),
-    };
-
-    await db.collection("joinedEvents").insertOne(joinData);
-
-    return res.status(201).send({
-      success: true,
-      message: "Successfully joined the event.",
-    });
-  } catch (error) {
-    console.error("Join event error:", error);
-
-    res.status(500).send({
-      success: false,
-      message: "Failed to join event.",
-    });
-  }
-});
 
 // POST: Join an event
 app.post("/api/events/:id/join", async (req, res) => {
@@ -678,46 +761,87 @@ app.post("/api/events/:id/join", async (req, res) => {
   }
 });
 
-// // POST - Create Event API
-// app.post("/api/events", async (req, res) => {
-//   try {
-//     const { title, description, eventType, thumbnail, location, eventDate } =
-//       req.body;
+// POST: Join an event
+app.post("/api/events/:id/join", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userEmail, userName, userImage } = req.body;
 
-//     if (!title || !description || !eventType || !location || !eventDate) {
-//       return res.status(400).send({
-//         success: false,
-//         message: "Please provide all required fields.",
-//       });
-//     }
+    // Validate event ID
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({
+        success: false,
+        message: "Invalid event ID.",
+      });
+    }
 
-//     const newEvent = {
-//       title,
-//       description,
-//       eventType,
-//       thumbnail,
-//       location,
-//       eventDate: new Date(eventDate),
-//       createdAt: new Date(),
-//     };
+    // Validate user information
+    if (!userEmail) {
+      return res.status(400).send({
+        success: false,
+        message: "User email is required.",
+      });
+    }
 
-//     const result = await db.collection("events").insertOne(newEvent);
+    const eventId = new ObjectId(id);
 
-//     res.status(201).send({
-//       success: true,
-//       message: "Event created successfully!",
-//       eventId: result.insertedId,
-//     });
-//   } catch (error) {
-//     console.error("Create event error:", error);
+    // Check whether event exists
+    const event = await db.collection("events").findOne({
+      _id: eventId,
+    });
 
-//     res.status(500).send({
-//       success: false,
-//       message: "Failed to create event.",
-//     });
-//   }
-// });
+    if (!event) {
+      return res.status(404).send({
+        success: false,
+        message: "Event not found.",
+      });
+    }
 
+    // Prevent joining an event that has already passed
+    if (new Date(event.eventDate) <= new Date()) {
+      return res.status(400).send({
+        success: false,
+        message: "This event has already started or passed.",
+      });
+    }
+
+    // Check whether user already joined
+    const existingJoin = await db.collection("joinedEvents").findOne({
+      eventId,
+      userEmail,
+    });
+
+    if (existingJoin) {
+      return res.status(409).send({
+        success: false,
+        message: "You have already joined this event.",
+      });
+    }
+
+    // Save joining information
+    const joinData = {
+      eventId,
+      userEmail,
+      userName: userName || userEmail,
+      userImage: userImage || "",
+      joinedAt: new Date(),
+    };
+
+    await db.collection("joinedEvents").insertOne(joinData);
+
+    return res.status(201).send({
+      success: true,
+      message: "Successfully joined the event.",
+    });
+  } catch (error) {
+    console.error("Join event error:", error);
+
+    res.status(500).send({
+      success: false,
+      message: "Failed to join event.",
+    });
+  }
+});
 
 // Start server after MongoDB connection
 async function startServer() {
