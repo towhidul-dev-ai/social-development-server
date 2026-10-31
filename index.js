@@ -514,6 +514,169 @@ app.post("/api/events", async (req, res) => {
   }
 });
 
+// POST: Join an event
+app.post("/api/events/:id/join", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userEmail, userName, userImage } = req.body;
+
+    // Validate event ID
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({
+        success: false,
+        message: "Invalid event ID.",
+      });
+    }
+
+    // Validate user information
+    if (!userEmail) {
+      return res.status(400).send({
+        success: false,
+        message: "User email is required.",
+      });
+    }
+
+    const eventId = new ObjectId(id);
+
+    // Check whether event exists
+    const event = await db.collection("events").findOne({
+      _id: eventId,
+    });
+
+    if (!event) {
+      return res.status(404).send({
+        success: false,
+        message: "Event not found.",
+      });
+    }
+
+    // Prevent joining an event that has already passed
+    if (new Date(event.eventDate) <= new Date()) {
+      return res.status(400).send({
+        success: false,
+        message: "This event has already started or passed.",
+      });
+    }
+
+    // Check whether user already joined
+    const existingJoin = await db.collection("joinedEvents").findOne({
+      eventId,
+      userEmail,
+    });
+
+    if (existingJoin) {
+      return res.status(409).send({
+        success: false,
+        message: "You have already joined this event.",
+      });
+    }
+
+    // Save joining information
+    const joinData = {
+      eventId,
+      userEmail,
+      userName: userName || userEmail,
+      userImage: userImage || "",
+      joinedAt: new Date(),
+    };
+
+    await db.collection("joinedEvents").insertOne(joinData);
+
+    return res.status(201).send({
+      success: true,
+      message: "Successfully joined the event.",
+    });
+  } catch (error) {
+    console.error("Join event error:", error);
+
+    res.status(500).send({
+      success: false,
+      message: "Failed to join event.",
+    });
+  }
+});
+
+// POST: Join an event
+app.post("/api/events/:id/join", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userEmail, userName, userImage } = req.body;
+
+    // Validate event ID
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({
+        success: false,
+        message: "Invalid event ID.",
+      });
+    }
+
+    // Validate user information
+    if (!userEmail) {
+      return res.status(400).send({
+        success: false,
+        message: "User email is required.",
+      });
+    }
+
+    const eventId = new ObjectId(id);
+
+    // Check whether event exists
+    const event = await db.collection("events").findOne({
+      _id: eventId,
+    });
+
+    if (!event) {
+      return res.status(404).send({
+        success: false,
+        message: "Event not found.",
+      });
+    }
+
+    // Prevent joining an event that has already passed
+    if (new Date(event.eventDate) <= new Date()) {
+      return res.status(400).send({
+        success: false,
+        message: "This event has already started or passed.",
+      });
+    }
+
+    // Check whether user already joined
+    const existingJoin = await db.collection("joinedEvents").findOne({
+      eventId,
+      userEmail,
+    });
+
+    if (existingJoin) {
+      return res.status(409).send({
+        success: false,
+        message: "You have already joined this event.",
+      });
+    }
+
+    // Save joining information
+    const joinData = {
+      eventId,
+      userEmail,
+      userName: userName || userEmail,
+      userImage: userImage || "",
+      joinedAt: new Date(),
+    };
+
+    await db.collection("joinedEvents").insertOne(joinData);
+
+    return res.status(201).send({
+      success: true,
+      message: "Successfully joined the event.",
+    });
+  } catch (error) {
+    console.error("Join event error:", error);
+
+    res.status(500).send({
+      success: false,
+      message: "Failed to join event.",
+    });
+  }
+});
 
 // // POST - Create Event API
 // app.post("/api/events", async (req, res) => {
