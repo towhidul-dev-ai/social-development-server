@@ -124,6 +124,136 @@ app.get("/api/events/upcoming", async (req, res) => {
   }
 });
 
+// GET: Event join status and volunteer list
+app.get("/api/events/:id/join-status", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { email } = req.query;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({
+        success: false,
+        message: "Invalid event ID.",
+      });
+    }
+
+    const eventId = new ObjectId(id);
+
+    // Check whether the event exists
+    const event = await db.collection("events").findOne({
+      _id: eventId,
+    });
+
+    if (!event) {
+      return res.status(404).send({
+        success: false,
+        message: "Event not found.",
+      });
+    }
+
+    // Get all volunteers for this event
+    const joinedRecords = await db
+      .collection("joinedEvents")
+      .find({ eventId })
+      .sort({ joinedAt: -1 })
+      .toArray();
+
+    // Check whether the current user joined
+    const isJoined = email
+      ? joinedRecords.some(
+          (record) => record.userEmail === email
+        )
+      : false;
+
+    const volunteers = joinedRecords.map((record) => ({
+      name: record.userName || record.userEmail,
+      image: record.userImage || "",
+    }));
+
+    res.status(200).send({
+      success: true,
+      isJoined,
+      volunteerCount: joinedRecords.length,
+      volunteers,
+    });
+  } catch (error) {
+    console.error("Get join status error:", error);
+
+    res.status(500).send({
+      success: false,
+      message: "Failed to retrieve event join status.",
+    });
+  }
+});
+
+
+// GET: All events joined by a user
+app.get("/api/joined-events", async (req, res) => {
+  try {
+    const { email } = req.query;
+
+    if (!email || typeof email !== "string") {
+      return res.status(400).send({
+        success: false,
+        message: "User email is required.",
+      });
+    }
+
+    // Find all joining records for this user
+    const joinedRecords = await db
+      .collection("joinedEvents")
+      .find({ userEmail: email })
+      .sort({ joinedAt: -1 })
+      .toArray();
+
+    if (joinedRecords.length === 0) {
+      return res.status(200).send({
+        success: true,
+        total: 0,
+        events: [],
+      });
+    }
+
+    // Get the event IDs
+    const eventIds = joinedRecords.map(
+      (record) => record.eventId
+    );
+
+    // Find the corresponding events
+    const events = await db
+      .collection("events")
+      .find({
+        _id: { $in: eventIds },
+      })
+      .toArray();
+
+    // Attach joined date to each event
+    const eventsWithJoinDate = events.map((event) => {
+      const joinedRecord = joinedRecords.find(
+        (record) =>
+          record.eventId.toString() === event._id.toString()
+      );
+
+      return {
+        ...event,
+        joinedAt: joinedRecord?.joinedAt || null,
+      };
+    });
+
+    res.status(200).send({
+      success: true,
+      total: eventsWithJoinDate.length,
+      events: eventsWithJoinDate,
+    });
+  } catch (error) {
+    console.error("Get joined events error:", error);
+
+    res.status(500).send({
+      success: false,
+      message: "Failed to retrieve joined events.",
+    });
+  }
+});
 
 // GET SINGLE EVENT API
 app.get("/api/events/:id", async (req, res) => {
