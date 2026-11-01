@@ -1,36 +1,3 @@
-// import express from 'express';
-// import { MongoClient } from 'mongodb';
-// import 'dotenv/config'
-
-// const app = express()
-// const PORT = 8000
-
-// const client = new MongoClient(process.env.MONGODB_URL);
-
-// export async function connectToMongoDB() {
-//   try {
-//     await client.connect();
-//     console.log("You successfully connected to MongoDB!");
-//     return client;
-//   } catch (err) {
-//     console.dir(err);
-//   }
-// }
-
-// connectToMongoDB();
-// // http:// localhost:8000
-
-// app.get('/', (req, res)=>{
-//     res.send({message: 'server is running fine.'})
-// })
-
-
-
-// app.listen(PORT,()=>{
-//     console.log(`Server is running at ${PORT}`)
-// })
-
-
 import express from "express";
 import { MongoClient, ObjectId } from "mongodb";
 import cors from "cors";
@@ -48,7 +15,7 @@ let db;
 
 // Middleware
 app.use(cors({
-  origin: "http://localhost:3000",
+  origin: process.env.CLIENT_URL,
 }));
 
 app.use(express.json());
@@ -214,39 +181,6 @@ app.get("/api/events", verifyApi, async (req, res) => {
     });
   }
 });
-
-
-
-// GET ALL EVENTS API
-// app.get("/api/events", verifyApi, async (req, res) => {
-//   try {
-//     const { email } = req.query;
-
-//     // Build query
-//     const query = email
-//       ? { creatorEmail: email.toString().toLowerCase() }
-//       : {};
-
-//     const events = await db
-//       .collection("events")
-//       .find(query)
-//       .sort({ createdAt: -1 })
-//       .toArray();
-
-//     res.status(200).send({
-//       success: true,
-//       total: events.length,
-//       events,
-//     });
-//   } catch (error) {
-//     console.error("Get events error:", error);
-
-//     res.status(500).send({
-//       success: false,
-//       message: "Failed to retrieve events.",
-//     });
-//   }
-// });
 
 
 // GET: All upcoming events
@@ -425,86 +359,6 @@ app.get("/api/joined-events", verifyApi, async (req, res) => {
     });
   }
 });
-
-
-// GET: All events joined by a user
-
-// app.get("/api/joined-events", verifyApi, async (req, res) => {
-//   try {
-//     const email = req.user.email;
-//     // const { email } = req.query;
-
-//     if (!email || typeof email !== "string") {
-//       return res.status(400).send({
-//         success: false,
-//         message: "User email is required.",
-//       });
-//     }
-
-//     // Find all joining records for this user
-//     const joinedRecords = await db
-//       .collection("joinedEvents")
-//       .find({ userEmail: email.trim().toLowerCase() })
-//       .sort({ joinedAt: -1 })
-//       .toArray();
-
-//     if (joinedRecords.length === 0) {
-//       return res.status(200).send({
-//         success: true,
-//         total: 0,
-//         events: [],
-//       });
-//     }
-
-//     // Get the event IDs
-//     const eventIds = joinedRecords.map(
-//       (record) => record.eventId
-//     );
-
-//     // Find the corresponding events
-//     const events = await db
-//       .collection("events")
-//       .find({
-//         _id: { $in: eventIds },
-//       })
-//       .toArray();
-
-//     // Attach joined date to each event
-//     const eventsWithJoinDate = events.map((event) => {
-//       const joinedRecord = joinedRecords.find(
-//         (record) =>
-//           record.eventId.toString() === event._id.toString()
-//       );
-
-//       return {
-//         ...event,
-//         joinedAt: joinedRecord?.joinedAt || null,
-//       };
-//     });
-
-//     // Sort by event date: earliest first
-//     eventsWithJoinDate.sort(
-//       (a, b) =>
-//         new Date(a.eventDate).getTime() -
-//         new Date(b.eventDate).getTime()
-//     );
-
-//     res.status(200).send({
-//       success: true,
-//       total: eventsWithJoinDate.length,
-//       events: eventsWithJoinDate,
-//     });
-//   } catch (error) {
-//     console.error("Get joined events error:", error);
-
-//     res.status(500).send({
-//       success: false,
-//       message: "Failed to retrieve joined events.",
-//     });
-//   }
-// });
-
-
 
 // GET SINGLE EVENT API
 app.get("/api/events/:id", async (req, res) => {
@@ -1009,6 +863,7 @@ app.post("/api/events", verifyApi, async (req, res) => {
     });
   }
 });
+
 // DELETE: Leave an event
 // app.delete("/api/events/:id/join", verifyApi, async (req, res) => {
 //   try {
