@@ -13,37 +13,33 @@ const client = new MongoClient(process.env.MONGODB_URL);
 
 let db;
 
-const allowedOrigins = [
-  "http://localhost:3000",
-  "https://social-development-events-platform-nine.vercel.app",
-];
+// const allowedOrigins = [
+//   "http://localhost:3000",
+//   "https://social-development-events-platform-nine.vercel.app",
+// ];
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
+// app.use(
+//   cors({
+//     origin: (origin, callback) => {
+//       if (!origin || allowedOrigins.includes(origin)) {
+//         return callback(null, true);
+//       }
 
-      return callback(new Error("Not allowed by CORS"));
-    },
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
-// Middleware
-// app.use(cors({
-//   origin: process.env.CLIENT_URL,
+//       return callback(new Error("Not allowed by CORS"));
+//     },
 //     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
 //     allowedHeaders: ["Content-Type", "Authorization"],
-// }));
+//   })
+// );
+// Middleware
+app.use(cors());
 
 app.use(express.json());
 
 // MongoDB connection
 export async function connectToMongoDB() {
   try {
-    await client.connect();
+    // await client.connect();
 
     db = client.db("social");
 
@@ -165,6 +161,11 @@ app.get("/", (req, res) => {
 });
 
 
+// Start server after MongoDB connection
+async function startServer() {
+  try {
+    await connectToMongoDB();
+    
 // GET MY EVENTS API (JWT Protected)
 app.get("/api/events", verifyApi, async (req, res) => {
   try {
@@ -587,7 +588,6 @@ app.post("/api/events", async (req, res) => {
       thumbnail,
       location,
       eventDate,
-      creatorId,
       creatorName,
       creatorEmail,
       creatorImage,
@@ -610,7 +610,6 @@ app.post("/api/events", async (req, res) => {
 
     // Validate organizer information
     if (
-      !creatorId ||
       !creatorName?.trim() ||
       !creatorEmail?.trim()
     ) {
@@ -662,8 +661,6 @@ app.post("/api/events", async (req, res) => {
       location: location.trim(),
 
       eventDate: parsedDate,
-
-      creatorId,
       creatorName: creatorName.trim(),
       creatorEmail: creatorEmail.trim(),
       creatorImage: creatorImage || "",
@@ -671,7 +668,6 @@ app.post("/api/events", async (req, res) => {
       createdAt: new Date(),
       updatedAt: new Date(),
     };
-
     const result = await db
       .collection("events")
       .insertOne(newEvent);
@@ -1014,11 +1010,6 @@ app.post("/api/events/:id/join", verifyApi, async (req, res) => {
     });
   }
 });
-
-// Start server after MongoDB connection
-async function startServer() {
-  try {
-    await connectToMongoDB();
 
     app.listen(PORT, () => {
       console.log(`Server is running at http://localhost:${PORT}`);
