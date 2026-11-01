@@ -35,11 +35,14 @@ import express from "express";
 import { MongoClient, ObjectId } from "mongodb";
 import cors from "cors";
 import "dotenv/config";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 
 const app = express();
 const PORT = process.env.PORT || 8000;
+const CLIENT_URL = process.env.CLIENT_URL;
 
 const client = new MongoClient(process.env.MONGODB_URL);
+
 
 let db;
 
@@ -64,6 +67,109 @@ export async function connectToMongoDB() {
   }
 }
 
+const JWKS = createRemoteJWKSet(
+  new URL("/api/auth/jwks", CLIENT_URL)
+);
+const verifyApi = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication token is missing.",
+      });
+    }
+
+    const token = authHeader.slice(7).trim();
+
+    const { payload } = await jwtVerify(token, JWKS);
+
+    // Check the JWT subject and email
+    const userId = payload.sub;
+    const userEmail =
+      typeof payload.email === "string" ? payload.email.trim().toLowerCase() : "";
+
+    if (!userId || !userEmail) {
+      console.error("JWT payload is missing user information:", {
+        sub: payload.sub,
+        hasEmail: Boolean(payload.email),
+      });
+
+      return res.status(401).json({
+        success: false,
+        message: "Authenticated user information is missing from the token.",
+      });
+    }
+
+    req.user = {
+      id: userId,
+      email: userEmail,
+      name: typeof payload.name === "string" ? payload.name : "",
+    };
+
+    next();
+  } catch (error) {
+    console.error("JWT verification error:", error);
+
+    return res.status(401).json({
+      success: false,
+      message: "Invalid or expired authentication token.",
+    });
+  }
+};
+// const verifyApi = async (req, res, next) => {
+//   try {
+//     const authHeader = req.headers.authorization;
+
+//     if (!authHeader || !authHeader.startsWith("Bearer ")) {
+//       return res.status(401).send({
+//         success: false,
+//         message: "Authorization token is missing.",
+//       });
+//     }
+
+//     const token = authHeader.slice(7).trim();
+
+//     if (!token) {
+//       return res.status(401).send({
+//         success: false,
+//         message: "Authorization token is empty.",
+//       });
+//     }
+
+//     const { payload } = await jwtVerify(token, JWKS);
+
+//     if (!payload.sub || !payload.email) {
+//       return res.status(401).send({
+//         success: false,
+//         message: "Invalid token: user information is missing.",
+//       });
+//     }
+
+//     req.user = {
+//       id: payload.sub,
+//       email: payload.email,
+//       name: payload.name || "",
+//     };
+
+//     next();
+//   } catch (error) {
+//     console.error("JWT verification failed:", {
+//       name: error.name,
+//       message: error.message,
+//       code: error.code,
+//     });
+
+//     return res.status(401).send({
+//       success: false,
+//       message: "Invalid or expired token.",
+//     });
+//   }
+// };
+
+// export default verifyApi;
+
 // Home API
 app.get("/", (req, res) => {
   res.send({
@@ -72,36 +178,76 @@ app.get("/", (req, res) => {
 });
 
 
-// GET ALL EVENTS API
-app.get("/api/events", async (req, res) => {
+// GET MY EVENTS API (JWT Protected)
+app.get("/api/events", verifyApi, async (req, res) => {
   try {
-    const { email } = req.query;
+    // Get email from the verified JWT, not from the URL
+    const userEmail = req.user?.email?.trim().toLowerCase();
 
-    // Build query
-    const query = email
-      ? { creatorEmail: email.toString().toLowerCase() }
-      : {};
+    if (!userEmail) {
+      return res.status(401).send({
+        success: false,
+        message: "Authenticated user information is missing.",
+      });
+    }
 
+    // Only retrieve events created by the authenticated user
     const events = await db
       .collection("events")
-      .find(query)
+      .find({
+        creatorEmail: userEmail,
+      })
       .sort({ createdAt: -1 })
       .toArray();
 
-    res.status(200).send({
+    return res.status(200).send({
       success: true,
       total: events.length,
       events,
     });
   } catch (error) {
-    console.error("Get events error:", error);
+    console.error("Get my events error:", error);
 
-    res.status(500).send({
+    return res.status(500).send({
       success: false,
-      message: "Failed to retrieve events.",
+      message: "Failed to retrieve your events.",
     });
   }
 });
+
+
+
+// GET ALL EVENTS API
+// app.get("/api/events", verifyApi, async (req, res) => {
+//   try {
+//     const { email } = req.query;
+
+//     // Build query
+//     const query = email
+//       ? { creatorEmail: email.toString().toLowerCase() }
+//       : {};
+
+//     const events = await db
+//       .collection("events")
+//       .find(query)
+//       .sort({ createdAt: -1 })
+//       .toArray();
+
+//     res.status(200).send({
+//       success: true,
+//       total: events.length,
+//       events,
+//     });
+//   } catch (error) {
+//     console.error("Get events error:", error);
+
+//     res.status(500).send({
+//       success: false,
+//       message: "Failed to retrieve events.",
+//     });
+//   }
+// });
+
 
 // GET: All upcoming events
 app.get("/api/events/upcoming", async (req, res) => {
@@ -127,39 +273,16 @@ app.get("/api/events/upcoming", async (req, res) => {
   }
 });
 
-// GET: All upcoming events
-// app.get("/api/events/upcoming", async (req, res) => {
-//   try {
-//     const currentDate = new Date();
-
-//     const events = await db
-//       .collection("events")
-//       .find({
-//         eventDate: { $gt: currentDate },
-//       })
-//       .sort({ eventDate: 1 })
-//       .toArray();
-
-//     res.status(200).send({
-//       success: true,
-//       total: events.length,
-//       events,
-//     });
-//   } catch (error) {
-//     console.error("Upcoming events error:", error);
-
-//     res.status(500).send({
-//       success: false,
-//       message: "Failed to fetch upcoming events",
-//     });
-//   }
-// });
 
 // GET: Event join status and volunteer list
-app.get("/api/events/:id/join-status", async (req, res) => {
+app.get("/api/events/:id/join-status",
+  verifyApi,
+  async (req, res) => {
+ 
   try {
     const { id } = req.params;
-    const { email } = req.query;
+    const email = req.user.email;
+    // const { email } = req.query;
 
     if (!ObjectId.isValid(id)) {
       return res.status(400).send({
@@ -218,22 +341,25 @@ app.get("/api/events/:id/join-status", async (req, res) => {
 });
 
 
-// GET: All events joined by a user
-app.get("/api/joined-events", async (req, res) => {
+// GET: All events joined by the authenticated user
+app.get("/api/joined-events", verifyApi, async (req, res) => {
   try {
-    const { email } = req.query;
+    // Get email from the verified JWT
+    const email = req.user?.email;
 
     if (!email || typeof email !== "string") {
-      return res.status(400).send({
+      return res.status(401).send({
         success: false,
-        message: "User email is required.",
+        message: "Authenticated user email not found.",
       });
     }
+
+    const normalizedEmail = email.trim().toLowerCase();
 
     // Find all joining records for this user
     const joinedRecords = await db
       .collection("joinedEvents")
-      .find({ userEmail: email.trim().toLowerCase() })
+      .find({ userEmail: normalizedEmail })
       .sort({ joinedAt: -1 })
       .toArray();
 
@@ -245,12 +371,10 @@ app.get("/api/joined-events", async (req, res) => {
       });
     }
 
-    // Get the event IDs
-    const eventIds = joinedRecords.map(
-      (record) => record.eventId
-    );
+    // Get event IDs from joining records
+    const eventIds = joinedRecords.map((record) => record.eventId);
 
-    // Find the corresponding events
+    // Find corresponding events
     const events = await db
       .collection("events")
       .find({
@@ -272,13 +396,22 @@ app.get("/api/joined-events", async (req, res) => {
     });
 
     // Sort by event date: earliest first
-    eventsWithJoinDate.sort(
-      (a, b) =>
-        new Date(a.eventDate).getTime() -
-        new Date(b.eventDate).getTime()
-    );
+    eventsWithJoinDate.sort((a, b) => {
+      const dateA = new Date(a.eventDate).getTime();
+      const dateB = new Date(b.eventDate).getTime();
 
-    res.status(200).send({
+      const validA = Number.isNaN(dateA)
+        ? Number.POSITIVE_INFINITY
+        : dateA;
+
+      const validB = Number.isNaN(dateB)
+        ? Number.POSITIVE_INFINITY
+        : dateB;
+
+      return validA - validB;
+    });
+
+    return res.status(200).send({
       success: true,
       total: eventsWithJoinDate.length,
       events: eventsWithJoinDate,
@@ -286,7 +419,7 @@ app.get("/api/joined-events", async (req, res) => {
   } catch (error) {
     console.error("Get joined events error:", error);
 
-    res.status(500).send({
+    return res.status(500).send({
       success: false,
       message: "Failed to retrieve joined events.",
     });
@@ -294,11 +427,12 @@ app.get("/api/joined-events", async (req, res) => {
 });
 
 
-
 // GET: All events joined by a user
-// app.get("/api/joined-events", async (req, res) => {
+
+// app.get("/api/joined-events", verifyApi, async (req, res) => {
 //   try {
-//     const { email } = req.query;
+//     const email = req.user.email;
+//     // const { email } = req.query;
 
 //     if (!email || typeof email !== "string") {
 //       return res.status(400).send({
@@ -310,7 +444,7 @@ app.get("/api/joined-events", async (req, res) => {
 //     // Find all joining records for this user
 //     const joinedRecords = await db
 //       .collection("joinedEvents")
-//       .find({ userEmail: email })
+//       .find({ userEmail: email.trim().toLowerCase() })
 //       .sort({ joinedAt: -1 })
 //       .toArray();
 
@@ -348,6 +482,13 @@ app.get("/api/joined-events", async (req, res) => {
 //       };
 //     });
 
+//     // Sort by event date: earliest first
+//     eventsWithJoinDate.sort(
+//       (a, b) =>
+//         new Date(a.eventDate).getTime() -
+//         new Date(b.eventDate).getTime()
+//     );
+
 //     res.status(200).send({
 //       success: true,
 //       total: eventsWithJoinDate.length,
@@ -362,6 +503,8 @@ app.get("/api/joined-events", async (req, res) => {
 //     });
 //   }
 // });
+
+
 
 // GET SINGLE EVENT API
 app.get("/api/events/:id", async (req, res) => {
@@ -680,24 +823,28 @@ app.post("/api/events", async (req, res) => {
 
 
 // POST: Join an event
-app.post("/api/events/:id/join", async (req, res) => {
+
+// POST: Join an event
+app.post("/api/events/:id/join", verifyApi, async (req, res) => {
   try {
     const { id } = req.params;
-    const { userEmail, userName, userImage } = req.body;
+
+    // Get authenticated user from JWT
+    const userEmail = req.user.email?.trim().toLowerCase();
+    const userName = req.user.name || userEmail;
+
+    if (!userEmail) {
+      return res.status(401).send({
+        success: false,
+        message: "Authenticated user information is missing.",
+      });
+    }
 
     // Validate event ID
     if (!ObjectId.isValid(id)) {
       return res.status(400).send({
         success: false,
         message: "Invalid event ID.",
-      });
-    }
-
-    // Validate user information
-    if (!userEmail) {
-      return res.status(400).send({
-        success: false,
-        message: "User email is required.",
       });
     }
 
@@ -715,7 +862,7 @@ app.post("/api/events/:id/join", async (req, res) => {
       });
     }
 
-    // Prevent joining an event that has already passed
+    // Check event date
     if (new Date(event.eventDate) <= new Date()) {
       return res.status(400).send({
         success: false,
@@ -723,7 +870,7 @@ app.post("/api/events/:id/join", async (req, res) => {
       });
     }
 
-    // Check whether user already joined
+    // Check existing registration
     const existingJoin = await db.collection("joinedEvents").findOne({
       eventId,
       userEmail,
@@ -740,8 +887,8 @@ app.post("/api/events/:id/join", async (req, res) => {
     const joinData = {
       eventId,
       userEmail,
-      userName: userName || userEmail,
-      userImage: userImage || "",
+      userName,
+      userImage: "",
       joinedAt: new Date(),
     };
 
@@ -751,18 +898,168 @@ app.post("/api/events/:id/join", async (req, res) => {
       success: true,
       message: "Successfully joined the event.",
     });
+
   } catch (error) {
     console.error("Join event error:", error);
 
-    res.status(500).send({
+    return res.status(500).send({
       success: false,
       message: "Failed to join event.",
     });
   }
 });
 
+// POST - Create Event API (JWT Protected)
+app.post("/api/events", verifyApi, async (req, res) => {
+  try {
+    const {
+      title,
+      description,
+      eventType,
+      thumbnail,
+      location,
+      eventDate,
+      creatorName,
+      creatorImage,
+    } = req.body;
+
+    // Organizer identity comes from verified JWT
+    const creatorId = req.user.id;
+    const creatorEmail = req.user.email;
+
+    if (!creatorId || !creatorEmail) {
+      return res.status(401).json({
+        success: false,
+        message: "Authenticated user information is missing.",
+      });
+    }
+
+    if (
+      !title?.trim() ||
+      !description?.trim() ||
+      !eventType?.trim() ||
+      !thumbnail?.trim() ||
+      !location?.trim() ||
+      !eventDate
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide all required event fields.",
+      });
+    }
+
+    let thumbnailUrl;
+
+    try {
+      thumbnailUrl = new URL(thumbnail.trim());
+
+      if (!["http:", "https:"].includes(thumbnailUrl.protocol)) {
+        throw new Error("Invalid URL protocol");
+      }
+    } catch {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide a valid thumbnail URL.",
+      });
+    }
+
+    const parsedDate = new Date(eventDate);
+
+    if (
+      Number.isNaN(parsedDate.getTime()) ||
+      parsedDate.getTime() <= Date.now()
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Event date must be in the future.",
+      });
+    }
+
+    const newEvent = {
+      title: title.trim(),
+      description: description.trim(),
+      eventType: eventType.trim(),
+      thumbnail: thumbnailUrl.toString(),
+      location: location.trim(),
+      eventDate: parsedDate,
+
+      creatorId,
+      creatorName:
+        creatorName?.trim() || req.user.name || "Community Member",
+      creatorEmail,
+      creatorImage: creatorImage || "",
+
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const result = await db.collection("events").insertOne(newEvent);
+
+    return res.status(201).json({
+      success: true,
+      message: "Event created successfully!",
+      eventId: result.insertedId,
+    });
+  } catch (error) {
+    console.error("Create event error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to create event.",
+    });
+  }
+});
+// DELETE: Leave an event
+// app.delete("/api/events/:id/join", verifyApi, async (req, res) => {
+//   try {
+//     const { id } = req.params;
+//     const userEmail = req.user.email?.trim().toLowerCase();
+
+//     if (!ObjectId.isValid(id)) {
+//       return res.status(400).send({
+//         success: false,
+//         message: "Invalid event ID.",
+//       });
+//     }
+
+//     if (!userEmail) {
+//       return res.status(401).send({
+//         success: false,
+//         message: "Authenticated user email is missing.",
+//       });
+//     }
+
+//     const eventId = new ObjectId(id);
+
+//     const result = await db.collection("joinedEvents").deleteOne({
+//       eventId,
+//       userEmail,
+//     });
+
+//     if (result.deletedCount === 0) {
+//       return res.status(404).send({
+//         success: false,
+//         message: "You have not joined this event.",
+//       });
+//     }
+
+//     return res.status(200).send({
+//       success: true,
+//       message: "You have left the event successfully.",
+//     });
+//   } catch (error) {
+//     console.error("Leave event error:", error);
+
+//     return res.status(500).send({
+//       success: false,
+//       message: "Failed to leave event.",
+//     });
+//   }
+// });
+
+
 // POST: Join an event
-app.post("/api/events/:id/join", async (req, res) => {
+app.post("/api/events/:id/join", verifyApi, async (req, res) => {
   try {
     const { id } = req.params;
     const { userEmail, userName, userImage } = req.body;
